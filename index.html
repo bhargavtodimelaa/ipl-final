@@ -75,23 +75,15 @@ if(id && id.trim() !== "") return id.trim();
 return DEFAULT_CHANNEL_ID;
 }
 
-async function fetchWithProxy(url) {
-try {
-const proxyResponse = await fetch(PROXY_URL + url);
-return await proxyResponse.text();
-} catch(e) {
-console.error("Proxy fetch error, trying direct", e);
-const directResponse = await fetch(url, {
-method: "GET",
-headers: { "X-Requested-With": "XMLHttpRequest" }
-});
-return await directResponse.text();
-}
+async function fetchViaProxy(url) {
+const proxyUrl = PROXY_URL + url;
+const response = await fetch(proxyUrl);
+return await response.text();
 }
 
 async function fetchChannelList() {
 try {
-const rawText = await fetchWithProxy(CHANNELS_URL);
+const rawText = await fetchViaProxy(CHANNELS_URL);
 let channelList;
 if(rawText.trim().startsWith('[')) {
 channelList = JSON.parse(rawText);
@@ -113,7 +105,7 @@ const isStarSports = channelName && channelName.toLowerCase().startsWith('star s
 
 if(isStarSports) {
 try {
-const cookieText = await fetchWithProxy(COOKIE_STAR_SPORTS);
+const cookieText = await fetchViaProxy(COOKIE_STAR_SPORTS);
 const data = JSON.parse(cookieText);
 if(data && data.failed_results) {
 for(const item of data.failed_results) {
@@ -133,7 +125,7 @@ break;
 
 if(!primaryCookie) {
 try {
-const cookieText = await fetchWithProxy(COOKIE_PRIMARY);
+const cookieText = await fetchViaProxy(COOKIE_PRIMARY);
 const data = JSON.parse(cookieText);
 const entry = Array.isArray(data) ? data.find(i => i.cookie) : null;
 if(entry?.cookie) primaryCookie = entry.cookie;
@@ -142,7 +134,7 @@ if(entry?.cookie) primaryCookie = entry.cookie;
 
 if(COOKIE_FALLBACK) {
 try {
-const cookieText = await fetchWithProxy(COOKIE_FALLBACK);
+const cookieText = await fetchViaProxy(COOKIE_FALLBACK);
 const data = JSON.parse(cookieText);
 if(data?.cookie) fallbackCookie = data.cookie;
 } catch(e) { console.warn("Fallback cookie err", e); }
