@@ -41,6 +41,7 @@ Object.defineProperty(document, 'hidden', { get: function() { return false; } })
 Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
 }
 const DEFAULT_CHANNEL_ID = "1106";
+const PROXY_URL = "https://yt-worker.bhargavtodimela4.workers.dev/";
 const CHANNELS_URL = "https://allinonereborn.online/jtv-fetch/jstr4web.json";
 const COOKIE_PRIMARY = "https://allinonereborn.online/jstrweb2/cookies.json";
 const COOKIE_FALLBACK = "";
@@ -74,13 +75,23 @@ if(id && id.trim() !== "") return id.trim();
 return DEFAULT_CHANNEL_ID;
 }
 
-async function fetchChannelList() {
+async function fetchWithProxy(url) {
 try {
-const response = await fetch(CHANNELS_URL, {
+const proxyResponse = await fetch(PROXY_URL + url);
+return await proxyResponse.text();
+} catch(e) {
+console.error("Proxy fetch error, trying direct", e);
+const directResponse = await fetch(url, {
 method: "GET",
 headers: { "X-Requested-With": "XMLHttpRequest" }
 });
-const rawText = await response.text();
+return await directResponse.text();
+}
+}
+
+async function fetchChannelList() {
+try {
+const rawText = await fetchWithProxy(CHANNELS_URL);
 let channelList;
 if(rawText.trim().startsWith('[')) {
 channelList = JSON.parse(rawText);
@@ -102,8 +113,8 @@ const isStarSports = channelName && channelName.toLowerCase().startsWith('star s
 
 if(isStarSports) {
 try {
-const res = await fetch(COOKIE_STAR_SPORTS);
-const data = await res.json();
+const cookieText = await fetchWithProxy(COOKIE_STAR_SPORTS);
+const data = JSON.parse(cookieText);
 if(data && data.failed_results) {
 for(const item of data.failed_results) {
 if(String(item.channel_id) === String(channelId)) {
@@ -122,8 +133,8 @@ break;
 
 if(!primaryCookie) {
 try {
-const res = await fetch(COOKIE_PRIMARY);
-const data = await res.json();
+const cookieText = await fetchWithProxy(COOKIE_PRIMARY);
+const data = JSON.parse(cookieText);
 const entry = Array.isArray(data) ? data.find(i => i.cookie) : null;
 if(entry?.cookie) primaryCookie = entry.cookie;
 } catch(e) { console.warn("Primary cookie fetch err", e); }
@@ -131,8 +142,8 @@ if(entry?.cookie) primaryCookie = entry.cookie;
 
 if(COOKIE_FALLBACK) {
 try {
-const res = await fetch(COOKIE_FALLBACK);
-const data = await res.json();
+const cookieText = await fetchWithProxy(COOKIE_FALLBACK);
+const data = JSON.parse(cookieText);
 if(data?.cookie) fallbackCookie = data.cookie;
 } catch(e) { console.warn("Fallback cookie err", e); }
 }
