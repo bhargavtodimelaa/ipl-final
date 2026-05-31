@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="referrer" content="no-referrer">
+<title>Star Sports 1 • LIVE</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body,html{width:100%;height:100%;background:#000;overflow:hidden;font-family:system-ui,sans-serif}
+.shaka-video-container{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}
+video{width:100%;height:100%;object-fit:contain;background:#000}
+.player-message{position:fixed;bottom:20px;left:20px;background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);padding:6px 14px;border-radius:40px;font-size:12px;font-weight:500;color:#ccc;z-index:20;pointer-events:none;font-family:monospace;border-left:3px solid #ff9800}
+.watermark{position:absolute;bottom:20px;right:16px;z-index:9;font-size:10px;font-weight:600;color:rgba(255,255,255,0.12);pointer-events:none;font-family:monospace}
+.channel-info,#status{display:none}
+</style>
+</head>
+<body>
+<div class="shaka-video-container" id="playerContainer">
+<video id="videoElement" autoplay playsinline preload="metadata"></video>
+<div class="player-message" id="liveMsg">● STARTING STAR SPORTS 1</div>
+<div class="watermark">STAR SPORTS • LIVE</div>
+</div>
+<script>
+(function(){
+const DEFAULT_CHANNEL_ID = "1106";
+const CHANNELS_URL = "https://allinonereborn.online/jtv-fetch/jstr4web.json";
+const COOKIE_PRIMARY = "https://allinonereborn.online/jstrweb2/cookies.json";
+const COOKIE_FALLBACK = "";
+const COOKIE_STAR_SPORTS = "https://allinonereborn.online/jtv-fetch/jstarcookie/cookie.json";
+
+const videoEl = document.getElementById("videoElement");
+const container = document.getElementById("playerContainer");
+const liveMsgDiv = document.getElementById("liveMsg");
+
+let player = null;
+let currentActiveCookie = "";
+
+function setMessage(text, isError = false) {
+if(liveMsgDiv) {
+liveMsgDiv.textContent = text;
+liveMsgDiv.style.borderLeftColor = isError ? '#f44336' : '#ff9800';
+if(isError) liveMsgDiv.style.color = '#ffaaaa';
+else liveMsgDiv.style.color = '#ccc';
+if(isError) {
+setTimeout(() => {
+if(liveMsgDiv && liveMsgDiv.textContent === text) liveMsgDiv.textContent = '● STAR SPORTS 1 LIVE';
+}, 4000);
+}
+}
+}
+
+function getChannelIdFromUrl() {
+const params = new URLSearchParams(window.location.search);
+const id = params.get("id");
+if(id && id.trim() !== "") return id.trim();
+return DEFAULT_CHANNEL_ID;
+}
+
+async function fetchChannelList() {
+try {
+const response = await fetch(CHANNELS_URL, {
+method: "GET",
+headers: { "X-Requested-With": "XMLHttpRequest" }
+});
+const rawText = await response.text();
+let channelList;
+if(rawText.trim().startsWith('[')) {
+channelList = JSON.parse(rawText);
+} else {
+channelList = JSON.parse('[' + rawText + ']');
+}
+return channelList;
+} catch(e) {
+console.error("Channel list error", e);
+return null;
+}
+}
+
+async function fetchCookiesForChannel(channelId, channelName) {
+let primaryCookie = "";
+let fallbackCookie = "";
+
+const isStarSports = channelName && channelName.toLowerCase().startsWith('star sports');
+
+if(isStarSports) {
+try {
+const res = await fetch(COOKIE_STAR_SPORTS);
+const data = await res.json();
+if(data && data.failed_results) {
+for(const item of data.failed_results) {
+if(String(item.channel_id) === String(channelId)) {
+if(item.error_details && item.error_details.final_url) {
+const match = item.error_details.final_url.match(/__hdnea__=([^&]+)/);
+if(match) {
+primaryCookie = '__hdnea__=' + match[1];
+break;
+}
+}
+}
+}
+}
+} catch(e) { console.warn("Star Sports cookie fetch err", e); }
+}
+
+if(!primaryCookie) {
+try {
+const res = await fetch(COOKIE_PRIMARY);
+const data = await res.json();
+const entry = Array.isArray(data) ? data.find(i => i.cookie) : null;
+if(entry?.cookie) primaryCookie = entry.cookie;
+} catch(e) { console.warn("Primary cookie fetch err", e); }
+}
+
+if(COOKIE_FALLBACK) {
+try {
+const res = await fetch(COOKIE_FALLBACK);
+const data = await res.json();
+if(data?.cookie) fallbackCookie = data.cookie;
+} catch(e) { console.warn("Fallback cookie err", e); }
+}
+
+if(!primaryCookie && fallbackCookie) {
+primaryCookie = fallbackCookie;
+fallbackCookie = "";
+}
+
+return { primaryCookie, fallbackCookie };
+}
+
+function extractStreamUrls(channelData) {
+const urls = [channelData.url, channelData.url1, channelData.url2, channelData.url3]
+.filter(Boolean)
+.map(u => u.replace('bpk-tv//','bpk-tv/'));
+return urls;
+}
+
+async function initShakaPlayer() {
+if(!shaka.Player.isBrowserSupported()) {
+setMessage("Browser not supported", true);
+return false;
+}
+shaka.polyfill.installAll();
+player = new shaka.Player(videoEl);
+await player.attach(videoEl);
+new shaka.ui.Overlay(player, container, videoEl);
+return true;
+}
+
+function configurePlayerWithDrmAndCookie(channelData, activeCookie) {
+if(channelData.keyId && channelData.key) {
+player.configure({
+drm: { clearKeys: { [channelData.keyId]: channelData.key } },
+streaming: { lowLatencyMode: true }
+});
+} else {
+player.configure({ streaming: { lowLatencyMode: true } });
+}
+
+player.getNetworkingEngine().registerRequestFilter((type, request) => {
+request.headers["Referer"] = "https://www.jiotv.com/";
+request.headers["User-Agent"] = "plaYtv/7.1.5";
+
+if(activeCookie && 
+(type === shaka.net.NetworkingEngine.RequestType.MANIFEST ||
+type === shaka.net.NetworkingEngine.RequestType.SEGMENT)) {
+let baseUrl = request.uris[0].split("?")[0];
+request.uris[0] = baseUrl + "?" + activeCookie;
+}
+});
+}
+
+async function attemptPlayback(streamUrls, cookieRounds, channelData) {
+for(let roundIdx = 0; roundIdx < cookieRounds.length; roundIdx++) {
+const activeCookie = cookieRounds[roundIdx];
+if(!activeCookie && roundIdx > 0) continue;
+
+currentActiveCookie = activeCookie || "";
+configurePlayerWithDrmAndCookie(channelData, currentActiveCookie);
+
+for(let urlIdx = 0; urlIdx < streamUrls.length; urlIdx++) {
+const streamUrl = streamUrls[urlIdx];
+try {
+setMessage(`Connecting (${roundIdx === 0 ? 'primary' : 'backup'})...`, false);
+await player.load(streamUrl);
+await videoEl.play();
+setMessage(`● STAR SPORTS 1 • LIVE`, false);
+return true;
+} catch(e) {
+console.warn(`Stream fail [${roundIdx},${urlIdx}]`, e.message);
+}
+}
+}
+return false;
+}
+
+async function startPlayer() {
+const channelId = getChannelIdFromUrl();
+setMessage(`Loading Star Sports (ID:${channelId})...`, false);
+
+const channelList = await fetchChannelList();
+if(!channelList || !channelList.length) {
+setMessage("Failed to load channel list", true);
+return;
+}
+
+let channelData = channelList.find(c => String(c.id) === String(channelId));
+if(!channelData) {
+setMessage(`Channel ID ${channelId} not found, trying default 1106`, true);
+channelData = channelList.find(c => String(c.id) === "1106");
+if(!channelData) {
+setMessage("Star Sports channel missing", true);
+return;
+}
+}
+
+setMessage(`Found ${channelData.name || 'Star Sports'}`, false);
+
+const { primaryCookie, fallbackCookie } = await fetchCookiesForChannel(channelId, channelData.name || '');
+
+let cookieRounds = [];
+if(primaryCookie) cookieRounds.push(primaryCookie);
+if(fallbackCookie && fallbackCookie !== primaryCookie) cookieRounds.push(fallbackCookie);
+if(cookieRounds.length === 0) cookieRounds.push("");
+
+const streamUrls = extractStreamUrls(channelData);
+if(streamUrls.length === 0) {
+setMessage("No stream URLs found", true);
+return;
+}
+
+const playerReady = await initShakaPlayer();
+if(!playerReady) return;
+
+player.addEventListener('error', (event) => {
+console.error("Shaka error", event);
+setMessage("Stream error - retrying...", true);
+});
+
+const success = await attemptPlayback(streamUrls, cookieRounds, channelData);
+
+if(!success) {
+setMessage("All sources failed. Try refresh.", true);
+}
+
+videoEl.addEventListener('stalled', () => {
+setMessage("Buffering...", false);
+});
+
+videoEl.addEventListener('playing', () => {
+setMessage("● STAR SPORTS 1 LIVE", false);
+});
+}
+
+if(document.readyState === 'loading') {
+document.addEventListener('DOMContentLoaded', startPlayer);
+} else {
+startPlayer();
+}
+})();
+</script>
+</body>
+</html>
